@@ -92,6 +92,25 @@ function drawRoundedRectPath(ctx: CanvasRenderingContext2D, rect: StickerFrameRe
   ctx.closePath();
 }
 
+function createRoundedRectPath2D(rect: StickerFrameRect): Path2D {
+  const { x, y, width, height, cornerRadius } = rect;
+  const maxRadius = Math.min(cornerRadius, width / 2, height / 2);
+  const path = new Path2D();
+
+  path.moveTo(x + maxRadius, y);
+  path.lineTo(x + width - maxRadius, y);
+  path.quadraticCurveTo(x + width, y, x + width, y + maxRadius);
+  path.lineTo(x + width, y + height - maxRadius);
+  path.quadraticCurveTo(x + width, y + height, x + width - maxRadius, y + height);
+  path.lineTo(x + maxRadius, y + height);
+  path.quadraticCurveTo(x, y + height, x, y + height - maxRadius);
+  path.lineTo(x, y + maxRadius);
+  path.quadraticCurveTo(x, y, x + maxRadius, y);
+  path.closePath();
+
+  return path;
+}
+
 export function getStickerFrameRect(
   canvasWidth: number,
   canvasHeight: number,
@@ -177,17 +196,29 @@ function getCropSelectionFromPreview(
 function getExportGeometryFromCrop(cropSelection: StickerCropSelection): StickerGeometry {
   const frameWidth = Math.max(1, Math.round(cropSelection.cropWidth));
   const frameHeight = Math.max(1, Math.round(cropSelection.cropHeight));
-  const frameStyle = createAdaptiveFrameStyle(frameWidth, frameHeight);
-  const canvasWidth = frameWidth + frameStyle.insetX * 2;
-  const canvasHeight = frameHeight + frameStyle.insetY * 2;
+  const baseStyle = createAdaptiveFrameStyle(frameWidth, frameHeight);
+  const frameStyle: StickerFrameStyle = {
+    ...baseStyle,
+    insetX: 0,
+    insetY: 0,
+    shadowColor: "rgba(0, 0, 0, 0)",
+    shadowBlur: 0,
+    shadowOffsetY: 0,
+  };
 
   return {
     canvasSize: {
-      width: canvasWidth,
-      height: canvasHeight,
+      width: frameWidth,
+      height: frameHeight,
     },
     frameStyle,
-    frameRect: getStickerFrameRect(canvasWidth, canvasHeight, frameStyle),
+    frameRect: {
+      x: 0,
+      y: 0,
+      width: frameWidth,
+      height: frameHeight,
+      cornerRadius: frameStyle.cornerRadius,
+    },
   };
 }
 
@@ -201,6 +232,78 @@ function drawBorder(ctx: CanvasRenderingContext2D, frameRect: StickerFrameRect, 
   drawRoundedRectPath(ctx, frameRect);
   ctx.stroke();
   ctx.restore();
+}
+
+function drawInsetBorder(ctx: CanvasRenderingContext2D, frameRect: StickerFrameRect, frameStyle: StickerFrameStyle): void {
+  const inset = Math.min(frameStyle.borderWidth, frameRect.width / 2, frameRect.height / 2);
+
+  if (inset <= 0) {
+    return;
+  }
+
+  const outerPath = createRoundedRectPath2D(frameRect);
+  const innerWidth = frameRect.width - inset * 2;
+  const innerHeight = frameRect.height - inset * 2;
+
+  ctx.save();
+  ctx.fillStyle = frameStyle.borderColor;
+
+  if (innerWidth <= 0 || innerHeight <= 0) {
+    ctx.fill(outerPath);
+    ctx.restore();
+    return;
+  }
+
+  const innerRect: StickerFrameRect = {
+    x: frameRect.x + inset,
+    y: frameRect.y + inset,
+    width: innerWidth,
+    height: innerHeight,
+    cornerRadius: Math.max(0, frameRect.cornerRadius - inset),
+  };
+
+  const ringPath = new Path2D();
+  ringPath.addPath(outerPath);
+  ringPath.addPath(createRoundedRectPath2D(innerRect));
+  ctx.fill(ringPath, "evenodd");
+  ctx.restore();
+}
+
+function renderEdgeToEdgeSticker(
+  canvas: HTMLCanvasElement,
+  image: HTMLImageElement,
+  cropSelection: StickerCropSelection,
+  geometry: StickerGeometry,
+): void {
+  const ctx = canvas.getContext("2d");
+
+  if (!ctx) {
+    throw new Error("Canvas 2D nao disponivel.");
+  }
+
+  const scaleX = geometry.frameRect.width / cropSelection.cropWidth;
+  const scaleY = geometry.frameRect.height / cropSelection.cropHeight;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.save();
+  ctx.clip(createRoundedRectPath2D(geometry.frameRect));
+
+  if (cropSelection.sourceWidth > 0 && cropSelection.sourceHeight > 0) {
+    ctx.drawImage(
+      image,
+      cropSelection.sourceX,
+      cropSelection.sourceY,
+      cropSelection.sourceWidth,
+      cropSelection.sourceHeight,
+      geometry.frameRect.x + cropSelection.destX * scaleX,
+      geometry.frameRect.y + cropSelection.destY * scaleY,
+      cropSelection.sourceWidth * scaleX,
+      cropSelection.sourceHeight * scaleY,
+    );
+  }
+
+  ctx.restore();
+  drawInsetBorder(ctx, geometry.frameRect, geometry.frameStyle);
 }
 
 export function createDefaultTransform(): StickerTransform {
@@ -280,37 +383,46 @@ export async function composeStickerBlobWithOrientation(
   const cropSelection = getCropSelectionFromPreview(image, transform, orientation);
   const exportGeometry = getExportGeometryFromCrop(cropSelection);
   const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d");
-
-  if (!ctx) {
-    throw new Error("Canvas 2D nao disponivel.");
-  }
 
   canvas.width = exportGeometry.canvasSize.width;
   canvas.height = exportGeometry.canvasSize.height;
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  renderEdgeToEdgeSticker(canvas, image, cropSelection, exportGeometry);
 
-  ctx.save();
-  drawRoundedRectPath(ctx, exportGeometry.frameRect);
-  ctx.clip();
+  return canvasToBlob(canvas);
+}
 
-  if (cropSelection.sourceWidth > 0 && cropSelection.sourceHeight > 0) {
-    ctx.drawImage(
-      image,
-      cropSelection.sourceX,
-      cropSelection.sourceY,
-      cropSelection.sourceWidth,
-      cropSelection.sourceHeight,
-      exportGeometry.frameRect.x + cropSelection.destX,
-      exportGeometry.frameRect.y + cropSelection.destY,
-      cropSelection.sourceWidth,
-      cropSelection.sourceHeight,
-    );
-  }
+export function composeStickerPreviewBlob(
+  image: HTMLImageElement,
+  transform: StickerTransform,
+  orientation: StickerOrientation,
+): Promise<Blob> {
+  const cropSelection = getCropSelectionFromPreview(image, transform, orientation);
+  const canvasSize = getPreviewCanvasSize(orientation);
+  const previewStyle = createAdaptiveFrameStyle(canvasSize.width, canvasSize.height);
+  const canvas = document.createElement("canvas");
 
-  ctx.restore();
-  drawBorder(ctx, exportGeometry.frameRect, exportGeometry.frameStyle);
+  canvas.width = canvasSize.width;
+  canvas.height = canvasSize.height;
+
+  renderEdgeToEdgeSticker(canvas, image, cropSelection, {
+    canvasSize,
+    frameStyle: {
+      ...previewStyle,
+      insetX: 0,
+      insetY: 0,
+      shadowColor: "rgba(0, 0, 0, 0)",
+      shadowBlur: 0,
+      shadowOffsetY: 0,
+    },
+    frameRect: {
+      x: 0,
+      y: 0,
+      width: canvasSize.width,
+      height: canvasSize.height,
+      cornerRadius: previewStyle.cornerRadius,
+    },
+  });
 
   return canvasToBlob(canvas);
 }

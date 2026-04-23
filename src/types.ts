@@ -11,6 +11,7 @@ export interface StickerItem {
   id: string;
   file: File;
   sourceUrl: string;
+  previewUrl: string | null;
   originalName: string;
   status: StickerStatus;
   orientation: StickerOrientation;

@@ -13,6 +13,7 @@ import type { StickerItem, StickerOrientation, StickerTransform } from "./types"
 import { downloadAllAsZip, downloadBlob } from "./utils/downloads";
 import {
   composeStickerBlobWithOrientation,
+  composeStickerPreviewBlob,
   createDefaultTransform,
   getPreviewCanvasSize,
   loadImageFromUrl,
@@ -45,6 +46,7 @@ function createStickerItem(file: File, orientation: StickerOrientation): Sticker
     id: createItemId(),
     file,
     sourceUrl: URL.createObjectURL(file),
+    previewUrl: null,
     originalName: file.name,
     status: "pending",
     orientation,
@@ -89,6 +91,7 @@ function StickerCard({
   isDownloading: boolean;
 }) {
   const isPending = item.status === "pending";
+  const previewSource = item.previewUrl ?? item.sourceUrl;
 
   return (
     <li className={`sticker-card ${isPending ? "sticker-card--pending" : "sticker-card--completed"}`}>
@@ -101,7 +104,7 @@ function StickerCard({
           .filter(Boolean)
           .join(" ")}
       >
-        <img src={item.sourceUrl} alt={item.originalName} loading="lazy" />
+        <img src={previewSource} alt={item.originalName} loading="lazy" />
         <span className={`status-tag status-tag--${item.status}`}>
           {item.status === "pending" ? "Pendente" : "Concluida"}
         </span>
@@ -172,7 +175,15 @@ function App() {
   const previewCanvasSize = useMemo(() => getPreviewCanvasSize(draftOrientation), [draftOrientation]);
 
   useEffect(() => {
-    latestUrlsRef.current = items.map((item) => item.sourceUrl);
+    latestUrlsRef.current = items.flatMap((item) => {
+      const urls = [item.sourceUrl];
+
+      if (item.previewUrl) {
+        urls.push(item.previewUrl);
+      }
+
+      return urls;
+    });
   }, [items]);
 
   useEffect(() => {
@@ -306,27 +317,40 @@ function App() {
     setDraftOrientation("portrait");
   }
 
-  function updateEditedItem(status: "pending" | "completed"): void {
-    if (!editingItem) {
+  async function updateEditedItem(status: "pending" | "completed"): Promise<void> {
+    if (!editingItem || !editorImage) {
       return;
     }
 
-    setItems((current) =>
-      current.map((item) => {
-        if (item.id !== editingItem.id) {
-          return item;
-        }
+    try {
+      const previewBlob = await composeStickerPreviewBlob(editorImage, draftTransform, draftOrientation);
+      const previewUrl = URL.createObjectURL(previewBlob);
+      const previousPreviewUrl = editingItem.previewUrl;
 
-        return {
-          ...item,
-          transform: draftTransform,
-          orientation: draftOrientation,
-          status,
-        };
-      }),
-    );
+      setItems((current) =>
+        current.map((item) => {
+          if (item.id !== editingItem.id) {
+            return item;
+          }
 
-    closeEditor();
+          return {
+            ...item,
+            transform: draftTransform,
+            orientation: draftOrientation,
+            previewUrl,
+            status,
+          };
+        }),
+      );
+
+      if (previousPreviewUrl) {
+        URL.revokeObjectURL(previousPreviewUrl);
+      }
+
+      closeEditor();
+    } catch {
+      setErrorMessage("Nao foi possivel atualizar a pre-visualizacao da figurinha.");
+    }
   }
 
   function handleEditorPointerDown(event: PointerEvent<HTMLCanvasElement>): void {
@@ -665,7 +689,7 @@ function App() {
                     type="button"
                     className="button button--soft"
                     onClick={() => {
-                      updateEditedItem("pending");
+                      void updateEditedItem("pending");
                     }}
                   >
                     Salvar edicao
@@ -674,7 +698,7 @@ function App() {
                     type="button"
                     className="button button--success"
                     onClick={() => {
-                      updateEditedItem("completed");
+                      void updateEditedItem("completed");
                     }}
                   >
                     Concluir
@@ -685,7 +709,7 @@ function App() {
                   type="button"
                   className="button button--success"
                   onClick={() => {
-                    updateEditedItem("completed");
+                    void updateEditedItem("completed");
                   }}
                 >
                   Salvar alteracoes
