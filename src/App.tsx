@@ -221,6 +221,14 @@ function App() {
       return;
     }
 
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const previousBodyOverscrollBehavior = document.body.style.overscrollBehavior;
+
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "none";
+
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         dragStateRef.current = null;
@@ -235,6 +243,9 @@ function App() {
     window.addEventListener("keydown", onKeyDown);
 
     return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      document.body.style.overscrollBehavior = previousBodyOverscrollBehavior;
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [editingItem]);
