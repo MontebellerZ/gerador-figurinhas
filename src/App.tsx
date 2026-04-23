@@ -19,7 +19,8 @@ import {
   getPreviewCanvasSize,
   loadImageFromUrl,
   renderStickerOnCanvas,
-  toPngFileName,
+  resolveExportMimeType,
+  toOutputFileName,
 } from "./utils/stickerRenderer";
 
 const MIN_ZOOM = 1;
@@ -151,7 +152,7 @@ function StickerCard({
             onClick={() => onDownload(item.id)}
             disabled={isDownloading}
           >
-            {isDownloading ? "Gerando..." : "Baixar PNG"}
+            {isDownloading ? "Gerando..." : "Baixar"}
           </button>
         ) : null}
       </div>
@@ -476,8 +477,9 @@ function App() {
     setDownloadingItemId(itemId);
 
     try {
-      const blob = await composeStickerBlobWithOrientation(item.sourceUrl, item.transform, item.orientation);
-      downloadBlob(blob, toPngFileName(item.originalName));
+      const outputMimeType = resolveExportMimeType(item.file.type);
+      const blob = await composeStickerBlobWithOrientation(item.sourceUrl, item.transform, item.orientation, outputMimeType);
+      downloadBlob(blob, toOutputFileName(item.originalName, outputMimeType));
     } catch {
       setErrorMessage("Falha ao gerar o download desta figurinha.");
     } finally {
@@ -496,10 +498,11 @@ function App() {
       const entries = [];
 
       for (const item of completedItems) {
-        const blob = await composeStickerBlobWithOrientation(item.sourceUrl, item.transform, item.orientation);
+        const outputMimeType = resolveExportMimeType(item.file.type);
+        const blob = await composeStickerBlobWithOrientation(item.sourceUrl, item.transform, item.orientation, outputMimeType);
 
         entries.push({
-          fileName: toPngFileName(item.originalName),
+          fileName: toOutputFileName(item.originalName, outputMimeType),
           blob,
         });
       }

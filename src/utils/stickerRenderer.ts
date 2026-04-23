@@ -11,6 +11,14 @@ export const PORTRAIT_CANVAS_HEIGHT = 870;
 
 const BORDER_COLOR = "#ffffff";
 const SHADOW_COLOR = "rgba(0, 0, 0, 0.22)";
+const DEFAULT_EXPORT_MIME_TYPE = "image/png";
+const JPEG_EXPORT_MIME_TYPE = "image/jpeg";
+const WEBP_EXPORT_MIME_TYPE = "image/webp";
+
+type StickerExportMimeType =
+  | typeof DEFAULT_EXPORT_MIME_TYPE
+  | typeof JPEG_EXPORT_MIME_TYPE
+  | typeof WEBP_EXPORT_MIME_TYPE;
 
 interface StickerGeometry {
   canvasSize: StickerCanvasSize;
@@ -90,6 +98,36 @@ function drawRoundedRectPath(ctx: CanvasRenderingContext2D, rect: StickerFrameRe
   ctx.lineTo(x, y + maxRadius);
   ctx.quadraticCurveTo(x, y, x + maxRadius, y);
   ctx.closePath();
+}
+
+export function resolveExportMimeType(fileType?: string): StickerExportMimeType {
+  if (!fileType) {
+    return DEFAULT_EXPORT_MIME_TYPE;
+  }
+
+  const normalized = fileType.toLowerCase();
+
+  if (normalized === "image/jpeg" || normalized === "image/jpg") {
+    return JPEG_EXPORT_MIME_TYPE;
+  }
+
+  if (normalized === WEBP_EXPORT_MIME_TYPE) {
+    return WEBP_EXPORT_MIME_TYPE;
+  }
+
+  return DEFAULT_EXPORT_MIME_TYPE;
+}
+
+function resolveExportQuality(mimeType: StickerExportMimeType): number | undefined {
+  if (mimeType === JPEG_EXPORT_MIME_TYPE) {
+    return 0.92;
+  }
+
+  if (mimeType === WEBP_EXPORT_MIME_TYPE) {
+    return 0.95;
+  }
+
+  return undefined;
 }
 
 function createRoundedRectPath2D(rect: StickerFrameRect): Path2D {
@@ -271,7 +309,8 @@ function drawInsetBorder(ctx: CanvasRenderingContext2D, frameRect: StickerFrameR
     return;
   }
 
-  const outerPath = createRoundedRectPath2D(frameRect);
+  const outerPath = new Path2D();
+  outerPath.rect(frameRect.x, frameRect.y, frameRect.width, frameRect.height);
   const innerWidth = frameRect.width - inset * 2;
   const innerHeight = frameRect.height - inset * 2;
 
@@ -313,10 +352,18 @@ function renderEdgeToEdgeSticker(
 
   const scaleX = geometry.frameRect.width / cropSelection.cropWidth;
   const scaleY = geometry.frameRect.height / cropSelection.cropHeight;
+  const innerInset = Math.min(geometry.frameStyle.borderWidth, geometry.frameRect.width / 2, geometry.frameRect.height / 2);
+  const innerRect: StickerFrameRect = {
+    x: geometry.frameRect.x + innerInset,
+    y: geometry.frameRect.y + innerInset,
+    width: Math.max(0, geometry.frameRect.width - innerInset * 2),
+    height: Math.max(0, geometry.frameRect.height - innerInset * 2),
+    cornerRadius: Math.max(0, geometry.frameRect.cornerRadius - innerInset),
+  };
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.save();
-  ctx.clip(createRoundedRectPath2D(geometry.frameRect));
+  ctx.clip(createRoundedRectPath2D(innerRect));
 
   if (cropSelection.sourceWidth > 0 && cropSelection.sourceHeight > 0) {
     ctx.drawImage(
@@ -325,8 +372,8 @@ function renderEdgeToEdgeSticker(
       cropSelection.sourceY,
       cropSelection.sourceWidth,
       cropSelection.sourceHeight,
-      geometry.frameRect.x + cropSelection.destX * scaleX,
-      geometry.frameRect.y + cropSelection.destY * scaleY,
+      innerRect.x + cropSelection.destX * scaleX,
+      innerRect.y + cropSelection.destY * scaleY,
       cropSelection.sourceWidth * scaleX,
       cropSelection.sourceHeight * scaleY,
     );
@@ -381,33 +428,43 @@ export function renderStickerOnCanvas(
   drawBorder(ctx, frameRect, frameStyle);
 }
 
-function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+function canvasToBlob(
+  canvas: HTMLCanvasElement,
+  mimeType: StickerExportMimeType = DEFAULT_EXPORT_MIME_TYPE,
+): Promise<Blob> {
   return new Promise((resolve, reject) => {
+    const quality = resolveExportQuality(mimeType);
+
     canvas.toBlob(
       (blob) => {
         if (!blob) {
-          reject(new Error("Nao foi possivel gerar o arquivo PNG."));
+          reject(new Error("Nao foi possivel gerar o arquivo exportado."));
           return;
         }
 
         resolve(blob);
       },
-      "image/png",
-      1,
+      mimeType,
+      quality,
     );
   });
 }
 
-export async function composeStickerBlob(sourceUrl: string, transform: StickerTransform): Promise<Blob> {
+export async function composeStickerBlob(
+  sourceUrl: string,
+  transform: StickerTransform,
+  outputMimeType: StickerExportMimeType = DEFAULT_EXPORT_MIME_TYPE,
+): Promise<Blob> {
   const image = await loadImageFromUrl(sourceUrl);
   const orientation: StickerOrientation = image.naturalHeight >= image.naturalWidth ? "portrait" : "landscape";
-  return composeStickerBlobWithOrientation(sourceUrl, transform, orientation);
+  return composeStickerBlobWithOrientation(sourceUrl, transform, orientation, outputMimeType);
 }
 
 export async function composeStickerBlobWithOrientation(
   sourceUrl: string,
   transform: StickerTransform,
   orientation: StickerOrientation,
+  outputMimeType: StickerExportMimeType = DEFAULT_EXPORT_MIME_TYPE,
 ): Promise<Blob> {
   const image = await loadImageFromUrl(sourceUrl);
   const cropSelection = getCropSelectionFromPreview(image, transform, orientation);
@@ -419,7 +476,7 @@ export async function composeStickerBlobWithOrientation(
 
   renderEdgeToEdgeSticker(canvas, image, cropSelection, exportGeometry);
 
-  return canvasToBlob(canvas);
+  return canvasToBlob(canvas, outputMimeType);
 }
 
 export function composeStickerPreviewBlob(
@@ -457,9 +514,17 @@ export function composeStickerPreviewBlob(
   return canvasToBlob(canvas);
 }
 
-export function toPngFileName(fileName: string): string {
+export function toOutputFileName(fileName: string, mimeType: StickerExportMimeType): string {
   const dotIndex = fileName.lastIndexOf(".");
   const baseName = dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName;
+
+  if (mimeType === JPEG_EXPORT_MIME_TYPE) {
+    return `${baseName}.jpg`;
+  }
+
+  if (mimeType === WEBP_EXPORT_MIME_TYPE) {
+    return `${baseName}.webp`;
+  }
 
   return `${baseName}.png`;
 }
