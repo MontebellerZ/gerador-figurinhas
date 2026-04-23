@@ -1,18 +1,79 @@
-import type { StickerFrameRect, StickerFrameStyle, StickerTransform } from "../types";
+import type {
+  StickerCanvasSize,
+  StickerFrameRect,
+  StickerFrameStyle,
+  StickerOrientation,
+  StickerTransform,
+} from "../types";
 
-export const STICKER_CANVAS_WIDTH = 606;
-export const STICKER_CANVAS_HEIGHT = 870;
+export const PORTRAIT_CANVAS_WIDTH = 606;
+export const PORTRAIT_CANVAS_HEIGHT = 870;
 
-export const DEFAULT_STICKER_FRAME_STYLE: StickerFrameStyle = {
-  insetX: 28,
-  insetY: 28,
-  borderWidth: 20,
-  cornerRadius: 34,
-  borderColor: "#ffffff",
-  shadowColor: "rgba(0, 0, 0, 0.22)",
-  shadowBlur: 20,
-  shadowOffsetY: 8,
-};
+const BORDER_COLOR = "#ffffff";
+const SHADOW_COLOR = "rgba(0, 0, 0, 0.22)";
+
+interface StickerGeometry {
+  canvasSize: StickerCanvasSize;
+  frameStyle: StickerFrameStyle;
+  frameRect: StickerFrameRect;
+}
+
+interface StickerImageMetrics {
+  drawX: number;
+  drawY: number;
+  drawWidth: number;
+  drawHeight: number;
+  effectiveScale: number;
+}
+
+interface StickerCropSelection {
+  cropX: number;
+  cropY: number;
+  cropWidth: number;
+  cropHeight: number;
+  sourceX: number;
+  sourceY: number;
+  sourceWidth: number;
+  sourceHeight: number;
+  destX: number;
+  destY: number;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+export function getPreviewCanvasSize(orientation: StickerOrientation): StickerCanvasSize {
+  if (orientation === "landscape") {
+    return {
+      width: PORTRAIT_CANVAS_HEIGHT,
+      height: PORTRAIT_CANVAS_WIDTH,
+    };
+  }
+
+  return {
+    width: PORTRAIT_CANVAS_WIDTH,
+    height: PORTRAIT_CANVAS_HEIGHT,
+  };
+}
+
+function createAdaptiveFrameStyle(width: number, height: number): StickerFrameStyle {
+  const shortSide = Math.min(width, height);
+  const inset = clamp(Math.round(shortSide * 0.046), 18, 240);
+  const borderWidth = clamp(Math.round(shortSide * 0.033), 10, 170);
+  const cornerRadius = clamp(Math.round(shortSide * 0.056), 16, 280);
+
+  return {
+    insetX: inset,
+    insetY: inset,
+    borderWidth,
+    cornerRadius,
+    borderColor: BORDER_COLOR,
+    shadowColor: SHADOW_COLOR,
+    shadowBlur: clamp(Math.round(shortSide * 0.033), 10, 160),
+    shadowOffsetY: clamp(Math.round(shortSide * 0.013), 4, 70),
+  };
+}
 
 function drawRoundedRectPath(ctx: CanvasRenderingContext2D, rect: StickerFrameRect): void {
   const { x, y, width, height, cornerRadius } = rect;
@@ -32,9 +93,9 @@ function drawRoundedRectPath(ctx: CanvasRenderingContext2D, rect: StickerFrameRe
 }
 
 export function getStickerFrameRect(
-  canvasWidth = STICKER_CANVAS_WIDTH,
-  canvasHeight = STICKER_CANVAS_HEIGHT,
-  frameStyle = DEFAULT_STICKER_FRAME_STYLE,
+  canvasWidth: number,
+  canvasHeight: number,
+  frameStyle: StickerFrameStyle,
 ): StickerFrameRect {
   const width = canvasWidth - frameStyle.insetX * 2;
   const height = canvasHeight - frameStyle.insetY * 2;
@@ -46,6 +107,100 @@ export function getStickerFrameRect(
     height,
     cornerRadius: frameStyle.cornerRadius,
   };
+}
+
+function getPreviewGeometry(orientation: StickerOrientation): StickerGeometry {
+  const canvasSize = getPreviewCanvasSize(orientation);
+  const frameStyle = createAdaptiveFrameStyle(canvasSize.width, canvasSize.height);
+
+  return {
+    canvasSize,
+    frameStyle,
+    frameRect: getStickerFrameRect(canvasSize.width, canvasSize.height, frameStyle),
+  };
+}
+
+function getImageMetrics(
+  image: HTMLImageElement,
+  frameRect: StickerFrameRect,
+  transform: StickerTransform,
+): StickerImageMetrics {
+  const baseScale = Math.max(frameRect.width / image.naturalWidth, frameRect.height / image.naturalHeight);
+  const effectiveScale = baseScale * transform.zoom;
+  const drawWidth = image.naturalWidth * effectiveScale;
+  const drawHeight = image.naturalHeight * effectiveScale;
+  const centerX = frameRect.x + frameRect.width / 2 + transform.offsetX;
+  const centerY = frameRect.y + frameRect.height / 2 + transform.offsetY;
+
+  return {
+    drawX: centerX - drawWidth / 2,
+    drawY: centerY - drawHeight / 2,
+    drawWidth,
+    drawHeight,
+    effectiveScale,
+  };
+}
+
+function getCropSelectionFromPreview(
+  image: HTMLImageElement,
+  transform: StickerTransform,
+  orientation: StickerOrientation,
+): StickerCropSelection {
+  const previewGeometry = getPreviewGeometry(orientation);
+  const metrics = getImageMetrics(image, previewGeometry.frameRect, transform);
+  const cropX = (previewGeometry.frameRect.x - metrics.drawX) / metrics.effectiveScale;
+  const cropY = (previewGeometry.frameRect.y - metrics.drawY) / metrics.effectiveScale;
+  const cropWidth = previewGeometry.frameRect.width / metrics.effectiveScale;
+  const cropHeight = previewGeometry.frameRect.height / metrics.effectiveScale;
+
+  const sourceX = clamp(cropX, 0, image.naturalWidth);
+  const sourceY = clamp(cropY, 0, image.naturalHeight);
+  const sourceMaxX = clamp(cropX + cropWidth, 0, image.naturalWidth);
+  const sourceMaxY = clamp(cropY + cropHeight, 0, image.naturalHeight);
+  const sourceWidth = Math.max(0, sourceMaxX - sourceX);
+  const sourceHeight = Math.max(0, sourceMaxY - sourceY);
+
+  return {
+    cropX,
+    cropY,
+    cropWidth,
+    cropHeight,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    destX: Math.max(0, -cropX),
+    destY: Math.max(0, -cropY),
+  };
+}
+
+function getExportGeometryFromCrop(cropSelection: StickerCropSelection): StickerGeometry {
+  const frameWidth = Math.max(1, Math.round(cropSelection.cropWidth));
+  const frameHeight = Math.max(1, Math.round(cropSelection.cropHeight));
+  const frameStyle = createAdaptiveFrameStyle(frameWidth, frameHeight);
+  const canvasWidth = frameWidth + frameStyle.insetX * 2;
+  const canvasHeight = frameHeight + frameStyle.insetY * 2;
+
+  return {
+    canvasSize: {
+      width: canvasWidth,
+      height: canvasHeight,
+    },
+    frameStyle,
+    frameRect: getStickerFrameRect(canvasWidth, canvasHeight, frameStyle),
+  };
+}
+
+function drawBorder(ctx: CanvasRenderingContext2D, frameRect: StickerFrameRect, frameStyle: StickerFrameStyle): void {
+  ctx.save();
+  ctx.lineWidth = frameStyle.borderWidth;
+  ctx.strokeStyle = frameStyle.borderColor;
+  ctx.shadowColor = frameStyle.shadowColor;
+  ctx.shadowBlur = frameStyle.shadowBlur;
+  ctx.shadowOffsetY = frameStyle.shadowOffsetY;
+  drawRoundedRectPath(ctx, frameRect);
+  ctx.stroke();
+  ctx.restore();
 }
 
 export function createDefaultTransform(): StickerTransform {
@@ -71,7 +226,7 @@ export function renderStickerOnCanvas(
   canvas: HTMLCanvasElement,
   image: HTMLImageElement,
   transform: StickerTransform,
-  frameStyle = DEFAULT_STICKER_FRAME_STYLE,
+  frameStyle = createAdaptiveFrameStyle(canvas.width, canvas.height),
 ): void {
   const ctx = canvas.getContext("2d");
 
@@ -80,34 +235,17 @@ export function renderStickerOnCanvas(
   }
 
   const frameRect = getStickerFrameRect(canvas.width, canvas.height, frameStyle);
-  const baseScale = Math.max(frameRect.width / image.naturalWidth, frameRect.height / image.naturalHeight);
-  const effectiveScale = baseScale * transform.zoom;
-  const drawWidth = image.naturalWidth * effectiveScale;
-  const drawHeight = image.naturalHeight * effectiveScale;
-
-  const centerX = frameRect.x + frameRect.width / 2 + transform.offsetX;
-  const centerY = frameRect.y + frameRect.height / 2 + transform.offsetY;
-
-  const drawX = centerX - drawWidth / 2;
-  const drawY = centerY - drawHeight / 2;
+  const metrics = getImageMetrics(image, frameRect, transform);
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   ctx.save();
   drawRoundedRectPath(ctx, frameRect);
   ctx.clip();
-  ctx.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+  ctx.drawImage(image, metrics.drawX, metrics.drawY, metrics.drawWidth, metrics.drawHeight);
   ctx.restore();
 
-  ctx.save();
-  ctx.lineWidth = frameStyle.borderWidth;
-  ctx.strokeStyle = frameStyle.borderColor;
-  ctx.shadowColor = frameStyle.shadowColor;
-  ctx.shadowBlur = frameStyle.shadowBlur;
-  ctx.shadowOffsetY = frameStyle.shadowOffsetY;
-  drawRoundedRectPath(ctx, frameRect);
-  ctx.stroke();
-  ctx.restore();
+  drawBorder(ctx, frameRect, frameStyle);
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
@@ -129,12 +267,50 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
 
 export async function composeStickerBlob(sourceUrl: string, transform: StickerTransform): Promise<Blob> {
   const image = await loadImageFromUrl(sourceUrl);
+  const orientation: StickerOrientation = image.naturalHeight >= image.naturalWidth ? "portrait" : "landscape";
+  return composeStickerBlobWithOrientation(sourceUrl, transform, orientation);
+}
+
+export async function composeStickerBlobWithOrientation(
+  sourceUrl: string,
+  transform: StickerTransform,
+  orientation: StickerOrientation,
+): Promise<Blob> {
+  const image = await loadImageFromUrl(sourceUrl);
+  const cropSelection = getCropSelectionFromPreview(image, transform, orientation);
+  const exportGeometry = getExportGeometryFromCrop(cropSelection);
   const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
 
-  canvas.width = STICKER_CANVAS_WIDTH;
-  canvas.height = STICKER_CANVAS_HEIGHT;
+  if (!ctx) {
+    throw new Error("Canvas 2D nao disponivel.");
+  }
 
-  renderStickerOnCanvas(canvas, image, transform);
+  canvas.width = exportGeometry.canvasSize.width;
+  canvas.height = exportGeometry.canvasSize.height;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.save();
+  drawRoundedRectPath(ctx, exportGeometry.frameRect);
+  ctx.clip();
+
+  if (cropSelection.sourceWidth > 0 && cropSelection.sourceHeight > 0) {
+    ctx.drawImage(
+      image,
+      cropSelection.sourceX,
+      cropSelection.sourceY,
+      cropSelection.sourceWidth,
+      cropSelection.sourceHeight,
+      exportGeometry.frameRect.x + cropSelection.destX,
+      exportGeometry.frameRect.y + cropSelection.destY,
+      cropSelection.sourceWidth,
+      cropSelection.sourceHeight,
+    );
+  }
+
+  ctx.restore();
+  drawBorder(ctx, exportGeometry.frameRect, exportGeometry.frameStyle);
 
   return canvasToBlob(canvas);
 }

@@ -1,16 +1,28 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type PointerEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+  type PointerEvent,
+  type WheelEvent,
+} from "react";
 import "./App.scss";
-import type { StickerItem, StickerTransform } from "./types";
+import type { StickerItem, StickerOrientation, StickerTransform } from "./types";
 import { downloadAllAsZip, downloadBlob } from "./utils/downloads";
 import {
-  composeStickerBlob,
+  composeStickerBlobWithOrientation,
   createDefaultTransform,
+  getPreviewCanvasSize,
   loadImageFromUrl,
   renderStickerOnCanvas,
-  STICKER_CANVAS_HEIGHT,
-  STICKER_CANVAS_WIDTH,
   toPngFileName,
 } from "./utils/stickerRenderer";
+
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 5;
+const WHEEL_ZOOM_STEP = 0.002;
 
 interface DragState {
   pointerId: number;
@@ -28,16 +40,37 @@ function createItemId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function createStickerItem(file: File): StickerItem {
+function createStickerItem(file: File, orientation: StickerOrientation): StickerItem {
   return {
     id: createItemId(),
     file,
     sourceUrl: URL.createObjectURL(file),
     originalName: file.name,
     status: "pending",
+    orientation,
     transform: createDefaultTransform(),
     createdAt: Date.now(),
   };
+}
+
+async function getInitialOrientation(file: File): Promise<StickerOrientation> {
+  const sourceUrl = URL.createObjectURL(file);
+
+  try {
+    const image = await loadImageFromUrl(sourceUrl);
+
+    return image.naturalWidth > image.naturalHeight ? "landscape" : "portrait";
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getOrientationLabel(orientation: StickerOrientation): string {
+  return orientation === "portrait" ? "Em pe" : "Deitada";
 }
 
 function formatZoom(value: number): string {
@@ -51,13 +84,23 @@ function StickerCard({
   isDownloading,
 }: {
   item: StickerItem;
-  onEdit: (id: string) => void;
+  onEdit: (id: string) => Promise<void> | void;
   onDownload: (id: string) => void;
   isDownloading: boolean;
 }) {
+  const isPending = item.status === "pending";
+
   return (
-    <li className="sticker-card">
-      <div className="sticker-card__preview">
+    <li className={`sticker-card ${isPending ? "sticker-card--pending" : "sticker-card--completed"}`}>
+      <div
+        className={[
+          "sticker-card__preview",
+          isPending ? "sticker-card__preview--original" : "",
+          !isPending && item.orientation === "landscape" ? "sticker-card__preview--landscape" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <img src={item.sourceUrl} alt={item.originalName} loading="lazy" />
         <span className={`status-tag status-tag--${item.status}`}>
           {item.status === "pending" ? "Pendente" : "Concluida"}
@@ -71,10 +114,17 @@ function StickerCard({
         <p className="sticker-card__transform">
           Zoom: {formatZoom(item.transform.zoom)} | X: {Math.round(item.transform.offsetX)} | Y: {Math.round(item.transform.offsetY)}
         </p>
+        <p className="sticker-card__orientation">Orientacao: {getOrientationLabel(item.orientation)}</p>
       </div>
 
       <div className="sticker-card__actions">
-        <button type="button" className="button button--soft" onClick={() => onEdit(item.id)}>
+        <button
+          type="button"
+          className="button button--soft"
+          onClick={() => {
+            void onEdit(item.id);
+          }}
+        >
           {item.status === "pending" ? "Editar" : "Reeditar"}
         </button>
 
@@ -97,6 +147,7 @@ function App() {
   const [items, setItems] = useState<StickerItem[]>([]);
   const [editorItemId, setEditorItemId] = useState<string | null>(null);
   const [draftTransform, setDraftTransform] = useState<StickerTransform>(createDefaultTransform());
+  const [draftOrientation, setDraftOrientation] = useState<StickerOrientation>("portrait");
   const [editorImage, setEditorImage] = useState<HTMLImageElement | null>(null);
   const [isLoadingEditorImage, setIsLoadingEditorImage] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -118,6 +169,7 @@ function App() {
     [items],
   );
   const editingItem = useMemo(() => items.find((item) => item.id === editorItemId) ?? null, [editorItemId, items]);
+  const previewCanvasSize = useMemo(() => getPreviewCanvasSize(draftOrientation), [draftOrientation]);
 
   useEffect(() => {
     latestUrlsRef.current = items.map((item) => item.sourceUrl);
@@ -151,7 +203,7 @@ function App() {
     }
 
     renderStickerOnCanvas(editorCanvasRef.current, editorImage, draftTransform);
-  }, [draftTransform, editingItem, editorImage]);
+  }, [draftOrientation, draftTransform, editingItem, editorImage]);
 
   useEffect(() => {
     if (!editingItem) {
@@ -165,6 +217,7 @@ function App() {
         setIsLoadingEditorImage(false);
         setEditorImage(null);
         setEditorItemId(null);
+        setDraftOrientation("portrait");
       }
     };
 
@@ -175,7 +228,7 @@ function App() {
     };
   }, [editingItem]);
 
-  function appendUploadedFiles(fileList: FileList | File[]): void {
+  async function appendUploadedFiles(fileList: FileList | File[]): Promise<void> {
     const files = Array.from(fileList).filter((file) => file.type.startsWith("image/"));
 
     if (files.length === 0) {
@@ -183,14 +236,15 @@ function App() {
       return;
     }
 
-    const newItems = files.map(createStickerItem);
+    const orientations = await Promise.all(files.map((file) => getInitialOrientation(file)));
+    const newItems = files.map((file, index) => createStickerItem(file, orientations[index]));
 
     setItems((current) => [...current, ...newItems]);
   }
 
   function handleUploadInputChange(event: ChangeEvent<HTMLInputElement>): void {
     if (event.target.files) {
-      appendUploadedFiles(event.target.files);
+      void appendUploadedFiles(event.target.files);
     }
 
     event.target.value = "";
@@ -201,7 +255,7 @@ function App() {
     setIsDragOver(false);
 
     if (event.dataTransfer.files.length > 0) {
-      appendUploadedFiles(event.dataTransfer.files);
+      void appendUploadedFiles(event.dataTransfer.files);
     }
   }
 
@@ -217,6 +271,7 @@ function App() {
 
     setEditorItemId(item.id);
     setDraftTransform(item.transform);
+    setDraftOrientation(item.orientation);
     setEditorImage(null);
     setIsLoadingEditorImage(true);
 
@@ -248,6 +303,7 @@ function App() {
     setIsLoadingEditorImage(false);
     setEditorImage(null);
     setEditorItemId(null);
+    setDraftOrientation("portrait");
   }
 
   function updateEditedItem(status: "pending" | "completed"): void {
@@ -264,6 +320,7 @@ function App() {
         return {
           ...item,
           transform: draftTransform,
+          orientation: draftOrientation,
           status,
         };
       }),
@@ -291,8 +348,8 @@ function App() {
       return;
     }
 
-    const scaleX = STICKER_CANVAS_WIDTH / event.currentTarget.clientWidth;
-    const scaleY = STICKER_CANVAS_HEIGHT / event.currentTarget.clientHeight;
+    const scaleX = previewCanvasSize.width / event.currentTarget.clientWidth;
+    const scaleY = previewCanvasSize.height / event.currentTarget.clientHeight;
     const deltaX = (event.clientX - dragState.startX) * scaleX;
     const deltaY = (event.clientY - dragState.startY) * scaleY;
 
@@ -317,6 +374,30 @@ function App() {
     }
   }
 
+  function handleEditorWheel(event: WheelEvent<HTMLCanvasElement>): void {
+    event.preventDefault();
+
+    const zoomDelta = -event.deltaY * WHEEL_ZOOM_STEP;
+
+    setDraftTransform((current) => ({
+      ...current,
+      zoom: clamp(current.zoom + zoomDelta, MIN_ZOOM, MAX_ZOOM),
+    }));
+  }
+
+  function handleOrientationChange(orientation: StickerOrientation): void {
+    if (orientation === draftOrientation) {
+      return;
+    }
+
+    setDraftOrientation(orientation);
+    setDraftTransform((current) => ({
+      ...current,
+      offsetX: 0,
+      offsetY: 0,
+    }));
+  }
+
   async function handleDownloadSingle(itemId: string): Promise<void> {
     const item = items.find((candidate) => candidate.id === itemId);
 
@@ -327,7 +408,7 @@ function App() {
     setDownloadingItemId(itemId);
 
     try {
-      const blob = await composeStickerBlob(item.sourceUrl, item.transform);
+      const blob = await composeStickerBlobWithOrientation(item.sourceUrl, item.transform, item.orientation);
       downloadBlob(blob, toPngFileName(item.originalName));
     } catch {
       setErrorMessage("Falha ao gerar o download desta figurinha.");
@@ -347,7 +428,7 @@ function App() {
       const entries = [];
 
       for (const item of completedItems) {
-        const blob = await composeStickerBlob(item.sourceUrl, item.transform);
+        const blob = await composeStickerBlobWithOrientation(item.sourceUrl, item.transform, item.orientation);
 
         entries.push({
           fileName: toPngFileName(item.originalName),
@@ -423,7 +504,7 @@ function App() {
           {pendingItems.length === 0 ? (
             <p className="board__empty">Nenhuma figurinha pendente por aqui.</p>
           ) : (
-            <ul className="sticker-grid">
+            <ul className="sticker-grid sticker-grid--pending">
               {pendingItems.map((item) => (
                 <StickerCard
                   key={item.id}
@@ -459,7 +540,7 @@ function App() {
           {completedItems.length === 0 ? (
             <p className="board__empty">Finalize alguma edicao para habilitar os downloads.</p>
           ) : (
-            <ul className="sticker-grid">
+            <ul className="sticker-grid sticker-grid--completed">
               {completedItems.map((item) => (
                 <StickerCard
                   key={item.id}
@@ -488,7 +569,7 @@ function App() {
             <header className="editor-modal__header">
               <div>
                 <h2>{editingItem.originalName}</h2>
-                <p>Arraste a imagem para posicionar e use zoom para ajustar o enquadramento.</p>
+                <p>Arraste para posicionar, use scroll do mouse para zoom e escolha a orientacao final.</p>
               </div>
               <span className={`status-tag status-tag--${editingItem.status}`}>
                 {editingItem.status === "pending" ? "Pendente" : "Concluida"}
@@ -500,30 +581,56 @@ function App() {
                 {isLoadingEditorImage ? <p className="editor-canvas-wrap__loading">Carregando imagem...</p> : null}
                 <canvas
                   ref={editorCanvasRef}
-                  width={STICKER_CANVAS_WIDTH}
-                  height={STICKER_CANVAS_HEIGHT}
+                  width={previewCanvasSize.width}
+                  height={previewCanvasSize.height}
                   className="editor-canvas"
                   onPointerDown={handleEditorPointerDown}
                   onPointerMove={handleEditorPointerMove}
                   onPointerUp={handleEditorPointerRelease}
                   onPointerCancel={handleEditorPointerRelease}
                   onPointerLeave={handleEditorPointerRelease}
+                  onWheel={handleEditorWheel}
                 />
+                <p className="editor-canvas-wrap__hint">Dica: use o scroll do mouse dentro da moldura para controlar o zoom.</p>
               </div>
 
               <aside className="editor-controls">
+                <div className="editor-control">
+                  <p>Orientacao da figurinha</p>
+                  <div className="orientation-picker">
+                    <button
+                      type="button"
+                      className={`orientation-picker__option ${draftOrientation === "portrait" ? "orientation-picker__option--active" : ""}`}
+                      onClick={() => {
+                        handleOrientationChange("portrait");
+                      }}
+                    >
+                      Em pe
+                    </button>
+                    <button
+                      type="button"
+                      className={`orientation-picker__option ${draftOrientation === "landscape" ? "orientation-picker__option--active" : ""}`}
+                      onClick={() => {
+                        handleOrientationChange("landscape");
+                      }}
+                    >
+                      Deitada
+                    </button>
+                  </div>
+                </div>
+
                 <div className="editor-control">
                   <label htmlFor="zoom-range">Zoom ({formatZoom(draftTransform.zoom)})</label>
                   <input
                     id="zoom-range"
                     type="range"
-                    min={1}
-                    max={3}
+                    min={MIN_ZOOM}
+                    max={MAX_ZOOM}
                     step={0.01}
                     value={draftTransform.zoom}
                     onChange={(event) => {
                       const zoom = Number(event.target.value);
-                      setDraftTransform((current) => ({ ...current, zoom }));
+                      setDraftTransform((current) => ({ ...current, zoom: clamp(zoom, MIN_ZOOM, MAX_ZOOM) }));
                     }}
                   />
                 </div>

@@ -1,4 +1,5 @@
 export type StickerStatus = "pending" | "completed";
+export type StickerOrientation = "portrait" | "landscape";
 
 export interface StickerTransform {
   zoom: number;
@@ -12,6 +13,7 @@ export interface StickerItem {
   sourceUrl: string;
   originalName: string;
   status: StickerStatus;
+  orientation: StickerOrientation;
   transform: StickerTransform;
   createdAt: number;
 }
@@ -33,4 +35,9 @@ export interface StickerFrameRect {
   width: number;
   height: number;
   cornerRadius: number;
+}
+
+export interface StickerCanvasSize {
+  width: number;
+  height: number;
 }

@@ -204,18 +204,21 @@ body {
 	margin: 0;
 	padding: 0;
 	list-style: none;
-	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-	gap: 12px;
+	column-width: 220px;
+	column-gap: 12px;
 }
 
 .sticker-card {
-	display: grid;
+	display: inline-grid;
+	width: 100%;
 	gap: 10px;
 	padding: 10px;
+	margin: 0 0 12px;
 	border-radius: 16px;
 	background: rgba(255, 255, 255, 0.95);
 	border: 1px solid rgba(25, 89, 116, 0.12);
+	break-inside: avoid;
+	page-break-inside: avoid;
 }
 
 .sticker-card__preview {
@@ -226,10 +229,25 @@ body {
 	background: linear-gradient(140deg, #eaf4fd 0%, #dbf2f4 100%);
 }
 
+.sticker-card__preview--landscape {
+	aspect-ratio: 870 / 606;
+}
+
 .sticker-card__preview img {
 	width: 100%;
 	height: 100%;
 	object-fit: cover;
+}
+
+.sticker-card--pending .sticker-card__preview {
+	aspect-ratio: auto;
+	background: linear-gradient(140deg, #f5fbff 0%, #edf8f4 100%);
+}
+
+.sticker-card--pending .sticker-card__preview img {
+	display: block;
+	height: auto;
+	object-fit: contain;
 }
 
 .status-tag {
@@ -278,6 +296,12 @@ body {
 	margin: 0;
 	font-size: 0.84rem;
 	color: #3d6480;
+}
+
+.sticker-card__orientation {
+	margin: 0;
+	font-size: 0.82rem;
+	color: #385f78;
 }
 
 .sticker-card__actions {
@@ -396,6 +420,13 @@ body {
 	color: #2f5a73;
 }
 
+.editor-canvas-wrap__hint {
+	margin: 10px 0 0;
+	font-size: 0.84rem;
+	color: #355b73;
+	text-align: center;
+}
+
 .editor-canvas {
 	width: min(380px, 100%);
 	height: auto;
@@ -441,6 +472,36 @@ body {
 	width: 100%;
 }
 
+.orientation-picker {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px;
+}
+
+.orientation-picker__option {
+	border: 1px solid rgba(33, 88, 114, 0.24);
+	background: rgba(255, 255, 255, 0.92);
+	color: #1f4961;
+	font-family: "Space Grotesk", "Segoe UI", sans-serif;
+	font-size: 0.84rem;
+	font-weight: 700;
+	border-radius: 10px;
+	padding: 8px 10px;
+	cursor: pointer;
+	transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.orientation-picker__option:hover {
+	transform: translateY(-1px);
+	border-color: rgba(24, 125, 142, 0.46);
+}
+
+.orientation-picker__option--active {
+	background: linear-gradient(140deg, #197e92 0%, #176a7c 100%);
+	border-color: transparent;
+	color: #ffffff;
+}
+
 .editor-modal__footer {
 	display: flex;
 	justify-content: flex-end;
@@ -473,7 +534,7 @@ body {
 	}
 
 	.sticker-grid {
-		grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+		column-width: 170px;
 	}
 
 	.editor-modal {
