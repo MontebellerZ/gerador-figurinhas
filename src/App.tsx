@@ -12,6 +12,7 @@ import "./App.scss";
 import type { StickerItem, StickerOrientation, StickerTransform } from "./types";
 import { downloadAllAsZip, downloadBlob } from "./utils/downloads";
 import {
+  clampStickerTransform,
   composeStickerBlobWithOrientation,
   composeStickerPreviewBlob,
   createDefaultTransform,
@@ -77,6 +78,18 @@ function getOrientationLabel(orientation: StickerOrientation): string {
 
 function formatZoom(value: number): string {
   return `${value.toFixed(2)}x`;
+}
+
+function resolveClampedTransform(
+  image: HTMLImageElement | null,
+  transform: StickerTransform,
+  orientation: StickerOrientation,
+): StickerTransform {
+  if (!image) {
+    return transform;
+  }
+
+  return clampStickerTransform(image, transform, orientation);
 }
 
 function StickerCard({
@@ -304,6 +317,7 @@ function App() {
         return;
       }
 
+      setDraftTransform(clampStickerTransform(image, item.transform, item.orientation));
       setEditorImage(image);
     } catch {
       if (imageLoadTokenRef.current !== loadToken) {
@@ -334,7 +348,8 @@ function App() {
     }
 
     try {
-      const previewBlob = await composeStickerPreviewBlob(editorImage, draftTransform, draftOrientation);
+      const clampedTransform = clampStickerTransform(editorImage, draftTransform, draftOrientation);
+      const previewBlob = await composeStickerPreviewBlob(editorImage, clampedTransform, draftOrientation);
       const previewUrl = URL.createObjectURL(previewBlob);
       const previousPreviewUrl = editingItem.previewUrl;
 
@@ -346,7 +361,7 @@ function App() {
 
           return {
             ...item,
-            transform: draftTransform,
+            transform: clampedTransform,
             orientation: draftOrientation,
             previewUrl,
             status,
@@ -388,11 +403,17 @@ function App() {
     const deltaX = (event.clientX - dragState.startX) * scaleX;
     const deltaY = (event.clientY - dragState.startY) * scaleY;
 
-    setDraftTransform((current) => ({
-      ...current,
-      offsetX: dragState.initialOffsetX + deltaX,
-      offsetY: dragState.initialOffsetY + deltaY,
-    }));
+    setDraftTransform((current) =>
+      resolveClampedTransform(
+        editorImage,
+        {
+          ...current,
+          offsetX: dragState.initialOffsetX + deltaX,
+          offsetY: dragState.initialOffsetY + deltaY,
+        },
+        draftOrientation,
+      ),
+    );
   }
 
   function handleEditorPointerRelease(event: PointerEvent<HTMLCanvasElement>): void {
@@ -414,10 +435,16 @@ function App() {
 
     const zoomDelta = -event.deltaY * WHEEL_ZOOM_STEP;
 
-    setDraftTransform((current) => ({
-      ...current,
-      zoom: clamp(current.zoom + zoomDelta, MIN_ZOOM, MAX_ZOOM),
-    }));
+    setDraftTransform((current) =>
+      resolveClampedTransform(
+        editorImage,
+        {
+          ...current,
+          zoom: clamp(current.zoom + zoomDelta, MIN_ZOOM, MAX_ZOOM),
+        },
+        draftOrientation,
+      ),
+    );
   }
 
   function handleOrientationChange(orientation: StickerOrientation): void {
@@ -426,11 +453,17 @@ function App() {
     }
 
     setDraftOrientation(orientation);
-    setDraftTransform((current) => ({
-      ...current,
-      offsetX: 0,
-      offsetY: 0,
-    }));
+    setDraftTransform((current) =>
+      resolveClampedTransform(
+        editorImage,
+        {
+          ...current,
+          offsetX: 0,
+          offsetY: 0,
+        },
+        orientation,
+      ),
+    );
   }
 
   async function handleDownloadSingle(itemId: string): Promise<void> {
@@ -665,7 +698,13 @@ function App() {
                     value={draftTransform.zoom}
                     onChange={(event) => {
                       const zoom = Number(event.target.value);
-                      setDraftTransform((current) => ({ ...current, zoom: clamp(zoom, MIN_ZOOM, MAX_ZOOM) }));
+                      setDraftTransform((current) =>
+                        resolveClampedTransform(
+                          editorImage,
+                          { ...current, zoom: clamp(zoom, MIN_ZOOM, MAX_ZOOM) },
+                          draftOrientation,
+                        ),
+                      );
                     }}
                   />
                 </div>
@@ -681,7 +720,7 @@ function App() {
                   type="button"
                   className="button button--soft"
                   onClick={() => {
-                    setDraftTransform(createDefaultTransform());
+                    setDraftTransform(resolveClampedTransform(editorImage, createDefaultTransform(), draftOrientation));
                   }}
                 >
                   Resetar enquadramento

@@ -139,17 +139,47 @@ function getPreviewGeometry(orientation: StickerOrientation): StickerGeometry {
   };
 }
 
+function getClampedTransformForFrame(
+  image: HTMLImageElement,
+  frameRect: StickerFrameRect,
+  transform: StickerTransform,
+): StickerTransform {
+  const baseScale = Math.max(frameRect.width / image.naturalWidth, frameRect.height / image.naturalHeight);
+  const effectiveScale = baseScale * transform.zoom;
+  const drawWidth = image.naturalWidth * effectiveScale;
+  const drawHeight = image.naturalHeight * effectiveScale;
+  const maxOffsetX = Math.max(0, (drawWidth - frameRect.width) / 2);
+  const maxOffsetY = Math.max(0, (drawHeight - frameRect.height) / 2);
+
+  return {
+    zoom: transform.zoom,
+    offsetX: clamp(transform.offsetX, -maxOffsetX, maxOffsetX),
+    offsetY: clamp(transform.offsetY, -maxOffsetY, maxOffsetY),
+  };
+}
+
+export function clampStickerTransform(
+  image: HTMLImageElement,
+  transform: StickerTransform,
+  orientation: StickerOrientation,
+): StickerTransform {
+  const previewGeometry = getPreviewGeometry(orientation);
+
+  return getClampedTransformForFrame(image, previewGeometry.frameRect, transform);
+}
+
 function getImageMetrics(
   image: HTMLImageElement,
   frameRect: StickerFrameRect,
   transform: StickerTransform,
 ): StickerImageMetrics {
+  const clampedTransform = getClampedTransformForFrame(image, frameRect, transform);
   const baseScale = Math.max(frameRect.width / image.naturalWidth, frameRect.height / image.naturalHeight);
-  const effectiveScale = baseScale * transform.zoom;
+  const effectiveScale = baseScale * clampedTransform.zoom;
   const drawWidth = image.naturalWidth * effectiveScale;
   const drawHeight = image.naturalHeight * effectiveScale;
-  const centerX = frameRect.x + frameRect.width / 2 + transform.offsetX;
-  const centerY = frameRect.y + frameRect.height / 2 + transform.offsetY;
+  const centerX = frameRect.x + frameRect.width / 2 + clampedTransform.offsetX;
+  const centerY = frameRect.y + frameRect.height / 2 + clampedTransform.offsetY;
 
   return {
     drawX: centerX - drawWidth / 2,
