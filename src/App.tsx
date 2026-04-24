@@ -8,6 +8,7 @@ import {
   type PointerEvent,
   type WheelEvent,
 } from "react";
+import { TbCameraPlus, TbFolderPlus } from "react-icons/tb";
 import "./App.scss";
 import type { StickerItem, StickerOrientation, StickerTransform } from "./types";
 import { downloadAllAsZip, downloadBlob } from "./utils/downloads";
@@ -43,18 +44,38 @@ function createItemId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function createStickerItem(file: File, orientation: StickerOrientation): StickerItem {
+function createStickerItem(file: File, orientation: StickerOrientation, sourceFolder: string | null): StickerItem {
   return {
     id: createItemId(),
     file,
     sourceUrl: URL.createObjectURL(file),
     previewUrl: null,
+    sourceFolder,
     originalName: file.name,
     status: "pending",
     orientation,
     transform: createDefaultTransform(),
     createdAt: Date.now(),
   };
+}
+
+function extractFolderNameFromFile(file: File): string | null {
+  const relativePath = (file as File & { webkitRelativePath?: string }).webkitRelativePath;
+
+  if (!relativePath || !relativePath.includes("/")) {
+    return null;
+  }
+
+  const [folderName] = relativePath.split("/");
+
+  return folderName?.trim() ? folderName : null;
+}
+
+function normalizeZipBaseName(name: string): string {
+  const trimmed = name.trim();
+  const sanitized = trimmed.replace(/[\\/:*?"<>|]/g, "-").replace(/\s+/g, " ").trim();
+
+  return sanitized.length > 0 ? sanitized : "figurinhas-concluidas";
 }
 
 async function getInitialOrientation(file: File): Promise<StickerOrientation> {
@@ -264,7 +285,7 @@ function App() {
     };
   }, [editingItem]);
 
-  async function appendUploadedFiles(fileList: FileList | File[]): Promise<void> {
+  async function appendUploadedFiles(fileList: FileList | File[], preferredFolderName: string | null = null): Promise<void> {
     const files = Array.from(fileList).filter((file) => file.type.startsWith("image/"));
 
     if (files.length === 0) {
@@ -273,7 +294,11 @@ function App() {
     }
 
     const orientations = await Promise.all(files.map((file) => getInitialOrientation(file)));
-    const newItems = files.map((file, index) => createStickerItem(file, orientations[index]));
+    const newItems = files.map((file, index) => {
+      const sourceFolder = extractFolderNameFromFile(file) ?? preferredFolderName;
+
+      return createStickerItem(file, orientations[index], sourceFolder);
+    });
 
     setItems((current) => [...current, ...newItems]);
   }
@@ -281,6 +306,15 @@ function App() {
   function handleUploadInputChange(event: ChangeEvent<HTMLInputElement>): void {
     if (event.target.files) {
       void appendUploadedFiles(event.target.files);
+    }
+
+    event.target.value = "";
+  }
+
+  function handleFolderUploadInputChange(event: ChangeEvent<HTMLInputElement>): void {
+    if (event.target.files && event.target.files.length > 0) {
+      const firstFolderName = extractFolderNameFromFile(event.target.files[0]);
+      void appendUploadedFiles(event.target.files, firstFolderName);
     }
 
     event.target.value = "";
@@ -496,10 +530,15 @@ function App() {
 
     try {
       const entries = [];
+      const folderNames = new Set<string>();
 
       for (const item of completedItems) {
         const outputMimeType = resolveExportMimeType(item.file.type);
         const blob = await composeStickerBlobWithOrientation(item.sourceUrl, item.transform, item.orientation, outputMimeType);
+
+        if (item.sourceFolder) {
+          folderNames.add(item.sourceFolder);
+        }
 
         entries.push({
           fileName: toOutputFileName(item.originalName, outputMimeType),
@@ -507,7 +546,11 @@ function App() {
         });
       }
 
-      await downloadAllAsZip(entries);
+      const zipFileName = folderNames.size === 1
+        ? `${normalizeZipBaseName(Array.from(folderNames)[0])}.zip`
+        : "figurinhas-concluidas.zip";
+
+      await downloadAllAsZip(entries, zipFileName);
     } catch {
       setErrorMessage("Falha ao gerar o arquivo ZIP das concluidas.");
     } finally {
@@ -557,10 +600,33 @@ function App() {
           <p>Arraste seus arquivos para esta area ou use o seletor para upload multiplo.</p>
         </div>
 
-        <label htmlFor="image-upload" className="button button--primary">
-          Selecionar imagens
-        </label>
+        <div className="upload-panel__actions">
+          <label
+            htmlFor="image-upload"
+            className="button button--primary button--icon-only"
+            title="Selecionar imagens"
+            aria-label="Selecionar imagens"
+          >
+            <TbCameraPlus aria-hidden="true" />
+          </label>
+          <label
+            htmlFor="folder-upload"
+            className="button button--soft button--icon-only"
+            title="Selecionar pasta"
+            aria-label="Selecionar pasta"
+          >
+            <TbFolderPlus aria-hidden="true" />
+          </label>
+        </div>
         <input id="image-upload" type="file" accept="image/*" multiple onChange={handleUploadInputChange} />
+        <input
+          id="folder-upload"
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={handleFolderUploadInputChange}
+          {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
+        />
       </section>
 
       {errorMessage ? <p className="app-error">{errorMessage}</p> : null}

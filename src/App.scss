@@ -123,6 +123,14 @@ body {
 	color: #2f5570;
 }
 
+.upload-panel__actions {
+	margin-left: auto;
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 10px;
+}
+
 .upload-panel input {
 	position: absolute;
 	width: 1px;
@@ -354,6 +362,22 @@ body {
 	color: #1f4762;
 }
 
+.button--icon-only {
+	width: 52px;
+	height: 52px;
+	padding: 0;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex: 0 0 auto;
+}
+
+.button--icon-only svg {
+	width: 26px;
+	height: 26px;
+	display: block;
+}
+
 .editor-backdrop {
 	position: fixed;
 	inset: 0;
@@ -531,6 +555,12 @@ body {
 	.upload-panel {
 		flex-direction: column;
 		align-items: flex-start;
+	}
+
+	.upload-panel__actions {
+		width: 100%;
+		margin-left: 0;
+		justify-content: flex-end;
 	}
 
 	.sticker-grid {

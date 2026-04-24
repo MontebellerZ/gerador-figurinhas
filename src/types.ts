@@ -12,6 +12,7 @@ export interface StickerItem {
   file: File;
   sourceUrl: string;
   previewUrl: string | null;
+  sourceFolder: string | null;
   originalName: string;
   status: StickerStatus;
   orientation: StickerOrientation;
