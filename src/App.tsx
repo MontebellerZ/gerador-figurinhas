@@ -8,7 +8,7 @@ import {
   type PointerEvent,
   type WheelEvent,
 } from "react";
-import { TbCameraPlus, TbFolderPlus } from "react-icons/tb";
+import { TbCameraPlus, TbDownload, TbFileZip, TbFolderPlus, TbPencil } from "react-icons/tb";
 import "./App.scss";
 import type { StickerItem, StickerOrientation, StickerTransform } from "./types";
 import { downloadAllAsZip, downloadBlob } from "./utils/downloads";
@@ -158,22 +158,26 @@ function StickerCard({
       <div className="sticker-card__actions">
         <button
           type="button"
-          className="button button--soft"
+          className="button button--soft button--icon-only"
           onClick={() => {
             void onEdit(item.id);
           }}
+          title={item.status === "pending" ? "Editar" : "Reeditar"}
+          aria-label={item.status === "pending" ? "Editar" : "Reeditar"}
         >
-          {item.status === "pending" ? "Editar" : "Reeditar"}
+          <TbPencil aria-hidden="true" />
         </button>
 
         {item.status === "completed" ? (
           <button
             type="button"
-            className="button button--success"
+            className="button button--success button--icon-only"
             onClick={() => onDownload(item.id)}
             disabled={isDownloading}
+            title={isDownloading ? "Gerando..." : "Baixar"}
+            aria-label={isDownloading ? "Gerando..." : "Baixar"}
           >
-            {isDownloading ? "Gerando..." : "Baixar"}
+            <TbDownload aria-hidden="true" />
           </button>
         ) : null}
       </div>
@@ -633,9 +637,11 @@ function App() {
 
       <main className="boards">
         <section className="board">
-          <header className="board__header">
-            <h2>Pendentes</h2>
-            <span>{pendingItems.length}</span>
+          <header className="board__header board__header--split">
+            <div>
+              <h2>Pendentes</h2>
+              <span>{pendingItems.length}</span>
+            </div>
           </header>
 
           {pendingItems.length === 0 ? (
@@ -664,13 +670,15 @@ function App() {
 
             <button
               type="button"
-              className="button button--success"
+              className="button button--success button--icon-only"
               onClick={() => {
                 void handleDownloadAll();
               }}
               disabled={completedItems.length === 0 || isDownloadingAll}
+              title={isDownloadingAll ? "Gerando ZIP..." : "Baixar todas (.zip)"}
+              aria-label={isDownloadingAll ? "Gerando ZIP..." : "Baixar todas (.zip)"}
             >
-              {isDownloadingAll ? "Gerando ZIP..." : "Baixar todas (.zip)"}
+              <TbFileZip aria-hidden="true" />
             </button>
           </header>
 
