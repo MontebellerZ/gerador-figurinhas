@@ -8,7 +8,7 @@ import {
   type PointerEvent,
   type WheelEvent,
 } from "react";
-import { TbCameraPlus, TbDownload, TbFileZip, TbFolderPlus, TbPencil } from "react-icons/tb";
+import { TbCameraPlus, TbDownload, TbFileZip, TbFolderPlus, TbPencil, TbTrash } from "react-icons/tb";
 import "./App.scss";
 import type { StickerItem, StickerOrientation, StickerTransform } from "./types";
 import { downloadAllAsZip, downloadBlob } from "./utils/downloads";
@@ -196,6 +196,7 @@ function App() {
   const [isDragOver, setIsDragOver] = useState(false);
   const [downloadingItemId, setDownloadingItemId] = useState<string | null>(null);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+  const [isClearCompletedModalOpen, setIsClearCompletedModalOpen] = useState(false);
 
   const editorCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
@@ -256,7 +257,7 @@ function App() {
   }, [draftOrientation, draftTransform, editingItem, editorImage]);
 
   useEffect(() => {
-    if (!editingItem) {
+    if (!editingItem && !isClearCompletedModalOpen) {
       return;
     }
 
@@ -270,12 +271,18 @@ function App() {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        dragStateRef.current = null;
-        imageLoadTokenRef.current += 1;
-        setIsLoadingEditorImage(false);
-        setEditorImage(null);
-        setEditorItemId(null);
-        setDraftOrientation("portrait");
+        if (editingItem) {
+          dragStateRef.current = null;
+          imageLoadTokenRef.current += 1;
+          setIsLoadingEditorImage(false);
+          setEditorImage(null);
+          setEditorItemId(null);
+          setDraftOrientation("portrait");
+        }
+
+        if (isClearCompletedModalOpen) {
+          setIsClearCompletedModalOpen(false);
+        }
       }
     };
 
@@ -287,7 +294,7 @@ function App() {
       document.body.style.overscrollBehavior = previousBodyOverscrollBehavior;
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [editingItem]);
+  }, [editingItem, isClearCompletedModalOpen]);
 
   async function appendUploadedFiles(fileList: FileList | File[], preferredFolderName: string | null = null): Promise<void> {
     const files = Array.from(fileList).filter((file) => file.type.startsWith("image/"));
@@ -562,6 +569,44 @@ function App() {
     }
   }
 
+  function handleClearCompleted(): void {
+    if (completedItems.length === 0 || isDownloadingAll) {
+      return;
+    }
+
+    setItems((current) => {
+      const removedItems = current.filter((item) => item.status === "completed");
+
+      for (const item of removedItems) {
+        URL.revokeObjectURL(item.sourceUrl);
+
+        if (item.previewUrl) {
+          URL.revokeObjectURL(item.previewUrl);
+        }
+      }
+
+      return current.filter((item) => item.status !== "completed");
+    });
+
+    setDownloadingItemId((current) => {
+      if (!current) {
+        return null;
+      }
+
+      return completedItems.some((item) => item.id === current) ? null : current;
+    });
+
+    setIsClearCompletedModalOpen(false);
+  }
+
+  function openClearCompletedModal(): void {
+    if (completedItems.length === 0 || isDownloadingAll) {
+      return;
+    }
+
+    setIsClearCompletedModalOpen(true);
+  }
+
   return (
     <div className="app-shell">
       <header className="hero">
@@ -668,18 +713,31 @@ function App() {
               <span>{completedItems.length}</span>
             </div>
 
-            <button
-              type="button"
-              className="button button--success button--icon-only"
-              onClick={() => {
-                void handleDownloadAll();
-              }}
-              disabled={completedItems.length === 0 || isDownloadingAll}
-              title={isDownloadingAll ? "Gerando ZIP..." : "Baixar todas (.zip)"}
-              aria-label={isDownloadingAll ? "Gerando ZIP..." : "Baixar todas (.zip)"}
-            >
-              <TbFileZip aria-hidden="true" />
-            </button>
+            <div className="board__header-actions">
+              <button
+                type="button"
+                className="button button--success button--icon-only"
+                onClick={() => {
+                  void handleDownloadAll();
+                }}
+                disabled={completedItems.length === 0 || isDownloadingAll}
+                title={isDownloadingAll ? "Gerando ZIP..." : "Baixar todas (.zip)"}
+                aria-label={isDownloadingAll ? "Gerando ZIP..." : "Baixar todas (.zip)"}
+              >
+                <TbFileZip aria-hidden="true" />
+              </button>
+
+              <button
+                type="button"
+                className="button button--danger button--icon-only"
+                onClick={openClearCompletedModal}
+                disabled={completedItems.length === 0 || isDownloadingAll}
+                title="Limpar concluidas"
+                aria-label="Limpar concluidas"
+              >
+                <TbTrash aria-hidden="true" />
+              </button>
+            </div>
           </header>
 
           {completedItems.length === 0 ? (
@@ -843,6 +901,44 @@ function App() {
                 </button>
               )}
             </footer>
+          </section>
+        </div>
+      ) : null}
+
+      {isClearCompletedModalOpen ? (
+        <div
+          className="editor-backdrop"
+          role="presentation"
+          onClick={() => {
+            setIsClearCompletedModalOpen(false);
+          }}
+        >
+          <section
+            className="confirm-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirmar limpeza de concluidas"
+            onClick={(event) => {
+              event.stopPropagation();
+            }}
+          >
+            <h2>Limpar concluidas?</h2>
+            <p>Essa acao vai remover todas as figurinhas da secao de concluidas.</p>
+
+            <div className="confirm-modal__actions">
+              <button
+                type="button"
+                className="button button--ghost"
+                onClick={() => {
+                  setIsClearCompletedModalOpen(false);
+                }}
+              >
+                Cancelar
+              </button>
+              <button type="button" className="button button--danger" onClick={handleClearCompleted}>
+                Sim, limpar
+              </button>
+            </div>
           </section>
         </div>
       ) : null}

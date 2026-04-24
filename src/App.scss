@@ -200,6 +200,12 @@ body {
 	gap: 8px;
 }
 
+.board__header-actions {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+
 .board__empty {
 	margin: 0;
 	padding: 14px;
@@ -353,6 +359,12 @@ body {
 	box-shadow: 0 10px 20px rgba(21, 122, 82, 0.26);
 }
 
+.button--danger {
+	background: linear-gradient(140deg, #c53b3b 0%, #a92f2f 100%);
+	color: #ffffff;
+	box-shadow: 0 10px 20px rgba(169, 47, 47, 0.28);
+}
+
 .button--soft {
 	background: rgba(39, 98, 128, 0.14);
 	color: #204c66;
@@ -402,6 +414,36 @@ body {
 	box-shadow: 0 24px 46px rgba(0, 0, 0, 0.24);
 	display: grid;
 	gap: 14px;
+}
+
+.confirm-modal {
+	width: min(420px, 92vw);
+	padding: 18px;
+	border-radius: 20px;
+	background: #fdfefe;
+	border: 1px solid rgba(23, 64, 88, 0.18);
+	box-shadow: 0 24px 46px rgba(0, 0, 0, 0.24);
+	display: grid;
+	gap: 12px;
+}
+
+.confirm-modal h2 {
+	margin: 0;
+	font-family: "Space Grotesk", "Segoe UI", sans-serif;
+	font-size: 1.08rem;
+	color: #1a344e;
+}
+
+.confirm-modal p {
+	margin: 0;
+	color: #365973;
+}
+
+.confirm-modal__actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	flex-wrap: wrap;
 }
 
 .editor-modal__header {
