@@ -95,7 +95,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function getOrientationLabel(orientation: StickerOrientation): string {
-  return orientation === "portrait" ? "Em pe" : "Deitada";
+  return orientation === "portrait" ? "Em pé" : "Deitada";
 }
 
 function formatZoom(value: number): string {
@@ -141,7 +141,7 @@ function StickerCard({
       >
         <img src={previewSource} alt={item.originalName} loading="lazy" />
         <span className={`status-tag status-tag--${item.status}`}>
-          {item.status === "pending" ? "Pendente" : "Concluida"}
+          {item.status === "pending" ? "Pendente" : "Concluída"}
         </span>
       </div>
 
@@ -152,7 +152,7 @@ function StickerCard({
         <p className="sticker-card__transform">
           Zoom: {formatZoom(item.transform.zoom)} | X: {Math.round(item.transform.offsetX)} | Y: {Math.round(item.transform.offsetY)}
         </p>
-        <p className="sticker-card__orientation">Orientacao: {getOrientationLabel(item.orientation)}</p>
+        <p className="sticker-card__orientation">Orientação: {getOrientationLabel(item.orientation)}</p>
       </div>
 
       <div className="sticker-card__actions">
@@ -300,7 +300,7 @@ function App() {
     const files = Array.from(fileList).filter((file) => file.type.startsWith("image/"));
 
     if (files.length === 0) {
-      setErrorMessage("Selecione pelo menos uma imagem valida.");
+      setErrorMessage("Selecione pelo menos uma imagem válida.");
       return;
     }
 
@@ -370,7 +370,7 @@ function App() {
         return;
       }
 
-      setErrorMessage("Nao foi possivel carregar a imagem selecionada.");
+      setErrorMessage("Não foi possível carregar a imagem selecionada.");
       setEditorItemId(null);
     } finally {
       if (imageLoadTokenRef.current === loadToken) {
@@ -421,7 +421,7 @@ function App() {
 
       closeEditor();
     } catch {
-      setErrorMessage("Nao foi possivel atualizar a pre-visualizacao da figurinha.");
+      setErrorMessage("Não foi possível atualizar a pré-visualização da figurinha.");
     }
   }
 
@@ -563,7 +563,7 @@ function App() {
 
       await downloadAllAsZip(entries, zipFileName);
     } catch {
-      setErrorMessage("Falha ao gerar o arquivo ZIP das concluidas.");
+      setErrorMessage("Falha ao gerar o arquivo ZIP das concluídas.");
     } finally {
       setIsDownloadingAll(false);
     }
@@ -611,10 +611,10 @@ function App() {
     <div className="app-shell">
       <header className="hero">
         <p className="hero__eyebrow">Editor de Figurinhas</p>
-        <h1>Upload em lote com borda automatica</h1>
+        <h1>Upload em lote com borda automática</h1>
         <p>
-          Envie varias imagens, ajuste cada uma com zoom e arraste, conclua quando estiver pronta e baixe as figurinhas
-          individualmente ou em um unico arquivo ZIP.
+          Envie várias imagens, ajuste cada uma com zoom e arraste, conclua quando estiver pronta e baixe as figurinhas
+          individualmente ou em um único arquivo ZIP.
         </p>
 
         <div className="hero__stats">
@@ -628,7 +628,7 @@ function App() {
           </div>
           <div>
             <span>{completedItems.length}</span>
-            <small>Concluidas</small>
+            <small>Concluídas</small>
           </div>
         </div>
       </header>
@@ -646,7 +646,7 @@ function App() {
       >
         <div>
           <h2>Adicionar imagens</h2>
-          <p>Arraste seus arquivos para esta area ou use o seletor para upload multiplo.</p>
+          <p>Arraste seus arquivos para esta área ou use o seletor para upload múltiplo.</p>
         </div>
 
         <div className="upload-panel__actions">
@@ -709,7 +709,7 @@ function App() {
         <section className="board board--completed">
           <header className="board__header board__header--split">
             <div>
-              <h2>Concluidas</h2>
+              <h2>Concluídas</h2>
               <span>{completedItems.length}</span>
             </div>
 
@@ -732,8 +732,8 @@ function App() {
                 className="button button--danger button--icon-only"
                 onClick={openClearCompletedModal}
                 disabled={completedItems.length === 0 || isDownloadingAll}
-                title="Limpar concluidas"
-                aria-label="Limpar concluidas"
+                title="Limpar concluídas"
+                aria-label="Limpar concluídas"
               >
                 <TbTrash aria-hidden="true" />
               </button>
@@ -741,7 +741,7 @@ function App() {
           </header>
 
           {completedItems.length === 0 ? (
-            <p className="board__empty">Finalize alguma edicao para habilitar os downloads.</p>
+            <p className="board__empty">Finalize alguma edição para habilitar os downloads.</p>
           ) : (
             <ul className="sticker-grid sticker-grid--completed">
               {completedItems.map((item) => (
@@ -772,10 +772,10 @@ function App() {
             <header className="editor-modal__header">
               <div>
                 <h2>{editingItem.originalName}</h2>
-                <p>Arraste para posicionar, use scroll do mouse para zoom e escolha a orientacao final.</p>
+                <p>Arraste para posicionar, use scroll do mouse para zoom e escolha a orientação final.</p>
               </div>
               <span className={`status-tag status-tag--${editingItem.status}`}>
-                {editingItem.status === "pending" ? "Pendente" : "Concluida"}
+                {editingItem.status === "pending" ? "Pendente" : "Concluída"}
               </span>
             </header>
 
@@ -799,7 +799,7 @@ function App() {
 
               <aside className="editor-controls">
                 <div className="editor-control">
-                  <p>Orientacao da figurinha</p>
+                  <p>Orientação da figurinha</p>
                   <div className="orientation-picker">
                     <button
                       type="button"
@@ -808,7 +808,7 @@ function App() {
                         handleOrientationChange("portrait");
                       }}
                     >
-                      Em pe
+                      Em pé
                     </button>
                     <button
                       type="button"
@@ -845,7 +845,7 @@ function App() {
                 </div>
 
                 <div className="editor-control">
-                  <p>Posicao atual</p>
+                  <p>Posição atual</p>
                   <small>
                     X: {Math.round(draftTransform.offsetX)} | Y: {Math.round(draftTransform.offsetY)}
                   </small>
@@ -877,7 +877,7 @@ function App() {
                       void updateEditedItem("pending");
                     }}
                   >
-                    Salvar edicao
+                    Salvar edição
                   </button>
                   <button
                     type="button"
@@ -897,7 +897,7 @@ function App() {
                     void updateEditedItem("completed");
                   }}
                 >
-                  Salvar alteracoes
+                  Salvar alterações
                 </button>
               )}
             </footer>
@@ -917,13 +917,13 @@ function App() {
             className="confirm-modal"
             role="dialog"
             aria-modal="true"
-            aria-label="Confirmar limpeza de concluidas"
+            aria-label="Confirmar limpeza de concluídas"
             onClick={(event) => {
               event.stopPropagation();
             }}
           >
-            <h2>Limpar concluidas?</h2>
-            <p>Essa acao vai remover todas as figurinhas da secao de concluidas.</p>
+            <h2>Limpar concluídas?</h2>
+            <p>Essa ação vai remover todas as figurinhas da seção de concluídas.</p>
 
             <div className="confirm-modal__actions">
               <button
