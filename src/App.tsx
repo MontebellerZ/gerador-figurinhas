@@ -14,19 +14,28 @@ import type { StickerItem, StickerOrientation, StickerTransform } from "./types"
 import { downloadAllAsZip, downloadBlob } from "./utils/downloads";
 import {
   clampStickerTransform,
+  composePlaceholderBlob,
   composeStickerBlobWithOrientation,
   composeStickerPreviewBlob,
   createDefaultTransform,
   getPreviewCanvasSize,
   loadImageFromUrl,
+  renderPlaceholderOnCanvas,
   renderStickerOnCanvas,
   resolveExportMimeType,
   toOutputFileName,
+  type PlaceholderRenderOptions,
 } from "./utils/stickerRenderer";
 
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 5;
 const WHEEL_ZOOM_STEP = 0.002;
+const PLACEHOLDER_MIN_QUANTITY = 1;
+const PLACEHOLDER_MAX_QUANTITY = 999;
+const PLACEHOLDER_MIN_CIRCLE_SIZE = 10;
+const PLACEHOLDER_MAX_CIRCLE_SIZE = 95;
+const PLACEHOLDER_MIN_FONT_SIZE = 16;
+const PLACEHOLDER_MAX_FONT_SIZE = 220;
 
 interface DragState {
   pointerId: number;
@@ -100,6 +109,23 @@ function getOrientationLabel(orientation: StickerOrientation): string {
 
 function formatZoom(value: number): string {
   return `${value.toFixed(2)}x`;
+}
+
+function getPlaceholderPaddingLength(quantity: number, startNumber: number): number {
+  const safeQuantity = Math.max(1, Math.round(quantity));
+  const maxValue = startNumber + safeQuantity - 1;
+
+  return Math.max(1, String(Math.max(0, maxValue)).length);
+}
+
+function formatPlaceholderNumber(value: number, usePadStart: boolean, paddingLength: number): string {
+  const normalized = String(Math.max(0, Math.round(value)));
+
+  if (!usePadStart) {
+    return normalized;
+  }
+
+  return normalized.padStart(Math.max(1, paddingLength), "0");
 }
 
 function resolveClampedTransform(
@@ -197,8 +223,21 @@ function App() {
   const [downloadingItemId, setDownloadingItemId] = useState<string | null>(null);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const [isClearCompletedModalOpen, setIsClearCompletedModalOpen] = useState(false);
+  const [isPlaceholderModalOpen, setIsPlaceholderModalOpen] = useState(false);
+  const [placeholderQuantity, setPlaceholderQuantity] = useState(12);
+  const [placeholderPreviewNumber, setPlaceholderPreviewNumber] = useState(1);
+  const [placeholderCircleSizePercent, setPlaceholderCircleSizePercent] = useState(38);
+  const [placeholderFontSize, setPlaceholderFontSize] = useState(96);
+  const [placeholderUsePadStart, setPlaceholderUsePadStart] = useState(true);
+  const [placeholderStartAtOne, setPlaceholderStartAtOne] = useState(true);
+  const [placeholderFontColor, setPlaceholderFontColor] = useState("#ffffff");
+  const [placeholderCircleColor, setPlaceholderCircleColor] = useState("#ffffff");
+  const [placeholderFillCircle, setPlaceholderFillCircle] = useState(false);
+  const [isGeneratingPlaceholders, setIsGeneratingPlaceholders] = useState(false);
 
   const editorCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const placeholderPortraitCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const placeholderLandscapeCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
   const latestUrlsRef = useRef<string[]>([]);
   const imageLoadTokenRef = useRef(0);
@@ -213,6 +252,38 @@ function App() {
   );
   const editingItem = useMemo(() => items.find((item) => item.id === editorItemId) ?? null, [editorItemId, items]);
   const previewCanvasSize = useMemo(() => getPreviewCanvasSize(draftOrientation), [draftOrientation]);
+  const placeholderStartNumber = placeholderStartAtOne ? 1 : 0;
+  const safePlaceholderQuantity = useMemo(
+    () => clamp(Math.round(placeholderQuantity), PLACEHOLDER_MIN_QUANTITY, PLACEHOLDER_MAX_QUANTITY),
+    [placeholderQuantity],
+  );
+  const safePlaceholderPreviewNumber = useMemo(() => Math.max(0, Math.round(placeholderPreviewNumber)), [placeholderPreviewNumber]);
+  const placeholderPaddingLength = useMemo(
+    () => getPlaceholderPaddingLength(safePlaceholderQuantity, placeholderStartNumber),
+    [placeholderStartNumber, safePlaceholderQuantity],
+  );
+  const placeholderPreviewText = useMemo(
+    () => formatPlaceholderNumber(safePlaceholderPreviewNumber, placeholderUsePadStart, placeholderPaddingLength),
+    [placeholderPaddingLength, placeholderUsePadStart, safePlaceholderPreviewNumber],
+  );
+  const placeholderPreviewOptions = useMemo<PlaceholderRenderOptions>(
+    () => ({
+      numberText: placeholderPreviewText,
+      circleColor: placeholderCircleColor,
+      fontColor: placeholderFontColor,
+      circleSizePercent: placeholderCircleSizePercent,
+      fontSize: placeholderFontSize,
+      fillCircle: placeholderFillCircle,
+    }),
+    [
+      placeholderCircleColor,
+      placeholderCircleSizePercent,
+      placeholderFillCircle,
+      placeholderFontColor,
+      placeholderFontSize,
+      placeholderPreviewText,
+    ],
+  );
 
   useEffect(() => {
     latestUrlsRef.current = items.flatMap((item) => {
@@ -257,7 +328,21 @@ function App() {
   }, [draftOrientation, draftTransform, editingItem, editorImage]);
 
   useEffect(() => {
-    if (!editingItem && !isClearCompletedModalOpen) {
+    if (!isPlaceholderModalOpen) {
+      return;
+    }
+
+    if (placeholderPortraitCanvasRef.current) {
+      renderPlaceholderOnCanvas(placeholderPortraitCanvasRef.current, "portrait", placeholderPreviewOptions);
+    }
+
+    if (placeholderLandscapeCanvasRef.current) {
+      renderPlaceholderOnCanvas(placeholderLandscapeCanvasRef.current, "landscape", placeholderPreviewOptions);
+    }
+  }, [isPlaceholderModalOpen, placeholderPreviewOptions]);
+
+  useEffect(() => {
+    if (!editingItem && !isClearCompletedModalOpen && !isPlaceholderModalOpen) {
       return;
     }
 
@@ -283,6 +368,10 @@ function App() {
         if (isClearCompletedModalOpen) {
           setIsClearCompletedModalOpen(false);
         }
+
+        if (isPlaceholderModalOpen && !isGeneratingPlaceholders) {
+          setIsPlaceholderModalOpen(false);
+        }
       }
     };
 
@@ -294,7 +383,7 @@ function App() {
       document.body.style.overscrollBehavior = previousBodyOverscrollBehavior;
       window.removeEventListener("keydown", onKeyDown);
     };
-  }, [editingItem, isClearCompletedModalOpen]);
+  }, [editingItem, isClearCompletedModalOpen, isGeneratingPlaceholders, isPlaceholderModalOpen]);
 
   async function appendUploadedFiles(fileList: FileList | File[], preferredFolderName: string | null = null): Promise<void> {
     const files = Array.from(fileList).filter((file) => file.type.startsWith("image/"));
@@ -607,6 +696,63 @@ function App() {
     setIsClearCompletedModalOpen(true);
   }
 
+  function openPlaceholderModal(): void {
+    if (isGeneratingPlaceholders) {
+      return;
+    }
+
+    setIsPlaceholderModalOpen(true);
+  }
+
+  function closePlaceholderModal(): void {
+    if (isGeneratingPlaceholders) {
+      return;
+    }
+
+    setIsPlaceholderModalOpen(false);
+  }
+
+  async function handleDownloadPlaceholders(): Promise<void> {
+    if (safePlaceholderQuantity <= 0 || isGeneratingPlaceholders) {
+      return;
+    }
+
+    setIsGeneratingPlaceholders(true);
+
+    try {
+      const entries = [];
+
+      for (let index = 0; index < safePlaceholderQuantity; index += 1) {
+        const sequenceNumber = placeholderStartNumber + index;
+        const sequenceLabel = formatPlaceholderNumber(sequenceNumber, placeholderUsePadStart, placeholderPaddingLength);
+        const renderOptions: PlaceholderRenderOptions = {
+          ...placeholderPreviewOptions,
+          numberText: sequenceLabel,
+        };
+        const portraitBlob = await composePlaceholderBlob("portrait", renderOptions);
+        const landscapeBlob = await composePlaceholderBlob("landscape", renderOptions);
+        const baseName = `placeholder-${sequenceLabel}`;
+
+        entries.push(
+          {
+            fileName: `verticais/${baseName}.png`,
+            blob: portraitBlob,
+          },
+          {
+            fileName: `horizontais/${baseName}.png`,
+            blob: landscapeBlob,
+          },
+        );
+      }
+
+      await downloadAllAsZip(entries, "placeholders.zip");
+    } catch {
+      setErrorMessage("Falha ao gerar o pacote de placeholders.");
+    } finally {
+      setIsGeneratingPlaceholders(false);
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="hero">
@@ -630,6 +776,12 @@ function App() {
             <span>{completedItems.length}</span>
             <small>Concluídas</small>
           </div>
+        </div>
+
+        <div className="hero__actions">
+          <button type="button" className="button button--primary" onClick={openPlaceholderModal}>
+            Gerar placeholders do álbum
+          </button>
         </div>
       </header>
 
@@ -757,6 +909,203 @@ function App() {
           )}
         </section>
       </main>
+
+      {isPlaceholderModalOpen ? (
+        <div className="editor-backdrop" role="presentation" onClick={closePlaceholderModal}>
+          <section
+            className="placeholder-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Gerador de placeholders"
+            onClick={(event) => {
+              event.stopPropagation();
+            }}
+          >
+            <header className="placeholder-modal__header">
+              <div>
+                <h2>Gerar placeholders para o álbum</h2>
+                <p>
+                  Defina o estilo e baixe um lote em ZIP com duas pastas: <strong>verticais</strong> e <strong>horizontais</strong>.
+                </p>
+              </div>
+            </header>
+
+            <div className="placeholder-modal__content">
+              <div className="placeholder-preview">
+                <p className="placeholder-preview__title">Pré-visualização (número: {placeholderPreviewText})</p>
+
+                <div className="placeholder-preview__grid">
+                  <figure className="placeholder-preview__item">
+                    <figcaption>Vertical</figcaption>
+                    <canvas ref={placeholderPortraitCanvasRef} className="placeholder-preview__canvas placeholder-preview__canvas--portrait" />
+                  </figure>
+
+                  <figure className="placeholder-preview__item">
+                    <figcaption>Horizontal</figcaption>
+                    <canvas ref={placeholderLandscapeCanvasRef} className="placeholder-preview__canvas placeholder-preview__canvas--landscape" />
+                  </figure>
+                </div>
+              </div>
+
+              <aside className="placeholder-controls">
+                <label className="placeholder-control">
+                  <span>Quantidade de placeholders</span>
+                  <input
+                    type="number"
+                    min={PLACEHOLDER_MIN_QUANTITY}
+                    max={PLACEHOLDER_MAX_QUANTITY}
+                    value={placeholderQuantity}
+                    onChange={(event) => {
+                      const nextValue = Number(event.target.value);
+
+                      if (!Number.isFinite(nextValue)) {
+                        return;
+                      }
+
+                      setPlaceholderQuantity(
+                        clamp(Math.round(nextValue), PLACEHOLDER_MIN_QUANTITY, PLACEHOLDER_MAX_QUANTITY),
+                      );
+                    }}
+                  />
+                </label>
+
+                <div className="placeholder-control">
+                  <span>Contagem inicial</span>
+                  <div className="placeholder-start-picker">
+                    <button
+                      type="button"
+                      className={`placeholder-start-picker__option ${!placeholderStartAtOne ? "placeholder-start-picker__option--active" : ""}`}
+                      onClick={() => {
+                        setPlaceholderStartAtOne(false);
+                      }}
+                    >
+                      Começar em 0
+                    </button>
+                    <button
+                      type="button"
+                      className={`placeholder-start-picker__option ${placeholderStartAtOne ? "placeholder-start-picker__option--active" : ""}`}
+                      onClick={() => {
+                        setPlaceholderStartAtOne(true);
+                      }}
+                    >
+                      Começar em 1
+                    </button>
+                  </div>
+                </div>
+
+                <label className="placeholder-check">
+                  <input
+                    type="checkbox"
+                    checked={placeholderUsePadStart}
+                    onChange={(event) => {
+                      setPlaceholderUsePadStart(event.target.checked);
+                    }}
+                  />
+                  <span>Zeros à esquerda?</span>
+                </label>
+
+                <label className="placeholder-check">
+                  <input
+                    type="checkbox"
+                    checked={placeholderFillCircle}
+                    onChange={(event) => {
+                      setPlaceholderFillCircle(event.target.checked);
+                    }}
+                  />
+                  <span>Preencher cor</span>
+                </label>
+
+                <label className="placeholder-control">
+                  <span>Número para pré-visualização</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={999999}
+                    value={placeholderPreviewNumber}
+                    onChange={(event) => {
+                      const nextValue = Number(event.target.value);
+
+                      if (!Number.isFinite(nextValue)) {
+                        return;
+                      }
+
+                      setPlaceholderPreviewNumber(Math.max(0, Math.round(nextValue)));
+                    }}
+                  />
+                </label>
+
+                <label className="placeholder-control">
+                  <span>Tamanho do círculo ({placeholderCircleSizePercent}%)</span>
+                  <input
+                    type="range"
+                    min={PLACEHOLDER_MIN_CIRCLE_SIZE}
+                    max={PLACEHOLDER_MAX_CIRCLE_SIZE}
+                    step={1}
+                    value={placeholderCircleSizePercent}
+                    onChange={(event) => {
+                      setPlaceholderCircleSizePercent(Number(event.target.value));
+                    }}
+                  />
+                </label>
+
+                <label className="placeholder-control">
+                  <span>Tamanho da fonte ({placeholderFontSize}px)</span>
+                  <input
+                    type="range"
+                    min={PLACEHOLDER_MIN_FONT_SIZE}
+                    max={PLACEHOLDER_MAX_FONT_SIZE}
+                    step={1}
+                    value={placeholderFontSize}
+                    onChange={(event) => {
+                      setPlaceholderFontSize(Number(event.target.value));
+                    }}
+                  />
+                </label>
+
+                <div className="placeholder-colors">
+                  <label className="placeholder-control placeholder-control--color">
+                    <span>Cor do círculo</span>
+                    <input
+                      type="color"
+                      value={placeholderCircleColor}
+                      onChange={(event) => {
+                        setPlaceholderCircleColor(event.target.value);
+                      }}
+                    />
+                  </label>
+
+                  <label className="placeholder-control placeholder-control--color">
+                    <span>Cor da fonte</span>
+                    <input
+                      type="color"
+                      value={placeholderFontColor}
+                      onChange={(event) => {
+                        setPlaceholderFontColor(event.target.value);
+                      }}
+                    />
+                  </label>
+                </div>
+              </aside>
+            </div>
+
+            <footer className="placeholder-modal__footer">
+              <button type="button" className="button button--ghost" onClick={closePlaceholderModal}>
+                Fechar
+              </button>
+              <button
+                type="button"
+                className="button button--success"
+                onClick={() => {
+                  void handleDownloadPlaceholders();
+                }}
+                disabled={isGeneratingPlaceholders}
+              >
+                {isGeneratingPlaceholders ? "Gerando placeholders..." : "Baixar placeholders (.zip)"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
 
       {editingItem ? (
         <div className="editor-backdrop" role="presentation" onClick={closeEditor}>

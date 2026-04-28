@@ -34,6 +34,15 @@ interface StickerImageMetrics {
   effectiveScale: number;
 }
 
+export interface PlaceholderRenderOptions {
+  numberText: string;
+  circleColor: string;
+  fontColor: string;
+  circleSizePercent: number;
+  fontSize: number;
+  fillCircle: boolean;
+}
+
 interface StickerCropSelection {
   cropX: number;
   cropY: number;
@@ -338,6 +347,121 @@ function drawInsetBorder(ctx: CanvasRenderingContext2D, frameRect: StickerFrameR
   ctx.restore();
 }
 
+function getInnerRectFromInsetBorder(frameRect: StickerFrameRect, frameStyle: StickerFrameStyle): StickerFrameRect {
+  const inset = Math.min(frameStyle.borderWidth, frameRect.width / 2, frameRect.height / 2);
+
+  return {
+    x: frameRect.x + inset,
+    y: frameRect.y + inset,
+    width: Math.max(0, frameRect.width - inset * 2),
+    height: Math.max(0, frameRect.height - inset * 2),
+    cornerRadius: Math.max(0, frameRect.cornerRadius - inset),
+  };
+}
+
+function getFittedFontSize(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  desiredFontSize: number,
+  maxTextWidth: number,
+): number {
+  if (!text.trim()) {
+    return desiredFontSize;
+  }
+
+  let fittedFontSize = desiredFontSize;
+
+  while (fittedFontSize > 8) {
+    ctx.font = `700 ${fittedFontSize}px "Space Grotesk", "Outfit", sans-serif`;
+
+    if (ctx.measureText(text).width <= maxTextWidth) {
+      break;
+    }
+
+    fittedFontSize -= 1;
+  }
+
+  return fittedFontSize;
+}
+
+export function renderPlaceholderOnCanvas(
+  canvas: HTMLCanvasElement,
+  orientation: StickerOrientation,
+  options: PlaceholderRenderOptions,
+): void {
+  const canvasSize = getPreviewCanvasSize(orientation);
+
+  canvas.width = canvasSize.width;
+  canvas.height = canvasSize.height;
+
+  const ctx = canvas.getContext("2d");
+
+  if (!ctx) {
+    throw new Error("Canvas 2D nao disponivel.");
+  }
+
+  const previewStyle = createAdaptiveFrameStyle(canvasSize.width, canvasSize.height);
+  const frameStyle: StickerFrameStyle = {
+    ...previewStyle,
+    insetX: 0,
+    insetY: 0,
+    shadowColor: "rgba(0, 0, 0, 0)",
+    shadowBlur: 0,
+    shadowOffsetY: 0,
+  };
+  const frameRect: StickerFrameRect = {
+    x: 0,
+    y: 0,
+    width: canvasSize.width,
+    height: canvasSize.height,
+    cornerRadius: previewStyle.cornerRadius,
+  };
+  const innerRect = getInnerRectFromInsetBorder(frameRect, frameStyle);
+  const innerShortSide = Math.min(innerRect.width, innerRect.height);
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawInsetBorder(ctx, frameRect, frameStyle);
+
+  if (innerShortSide <= 0) {
+    return;
+  }
+
+  const centerX = innerRect.x + innerRect.width / 2;
+  const centerY = innerRect.y + innerRect.height / 2;
+  const clampedCircleSize = clamp(options.circleSizePercent, 10, 95);
+  const maxRadius = Math.max(10, innerShortSide / 2 - 6);
+  const circleRadius = clamp((innerShortSide * clampedCircleSize) / 200, 10, maxRadius);
+  const circleLineWidth = clamp(Math.round(innerShortSide * 0.012), 3, 16);
+  const desiredFontSize = clamp(Math.round(options.fontSize), 8, 420);
+  const numberText = options.numberText.trim() || "0";
+
+  ctx.save();
+  if (options.fillCircle) {
+    ctx.fillStyle = options.circleColor;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, circleRadius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.strokeStyle = options.circleColor;
+  ctx.lineWidth = circleLineWidth;
+  ctx.beginPath();
+  ctx.arc(centerX, centerY, circleRadius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const maxTextWidth = Math.max(10, circleRadius * 1.6);
+  const fittedFontSize = getFittedFontSize(ctx, numberText, desiredFontSize, maxTextWidth);
+
+  ctx.font = `700 ${fittedFontSize}px "Space Grotesk", "Outfit", sans-serif`;
+  ctx.fillStyle = options.fontColor;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  const metrics = ctx.measureText(numberText);
+  const adjustedY = centerY + (metrics.actualBoundingBoxAscent - metrics.actualBoundingBoxDescent) / 2;
+  ctx.fillText(numberText, centerX, adjustedY);
+  ctx.restore();
+}
+
 function renderEdgeToEdgeSticker(
   canvas: HTMLCanvasElement,
   image: HTMLImageElement,
@@ -510,6 +634,17 @@ export function composeStickerPreviewBlob(
       cornerRadius: previewStyle.cornerRadius,
     },
   });
+
+  return canvasToBlob(canvas);
+}
+
+export function composePlaceholderBlob(
+  orientation: StickerOrientation,
+  options: PlaceholderRenderOptions,
+): Promise<Blob> {
+  const canvas = document.createElement("canvas");
+
+  renderPlaceholderOnCanvas(canvas, orientation, options);
 
   return canvasToBlob(canvas);
 }
